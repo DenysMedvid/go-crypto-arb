@@ -1,0 +1,108 @@
+# go-crypto-arb
+
+> Monitoring-only Go arbitrage detection system for crypto exchanges and optional broker market data. It exposes current state through a backend REST API and renders it in separate Bubble Tea terminal and React/Redux web UIs. Current version: `v2.1.0`.
+
+`go-crypto-arb` collects public market-data inputs from supported crypto platforms (OKX, Bybit, Binance, Kraken, Coinbase, Gate.io, and Bitget) plus partial IBKR broker inputs, normalizes tickers/order books/funding data, runs depth-aware arbitrage calculations, scores provider health, generates in-memory alerts, and serves JSON APIs plus Prometheus metrics. The TUI and web UI are read-only clients of the backend API. The project intentionally does not place orders, execute trades, manage positions, or automate buy/sell actions.
+
+## Primary References
+
+- [README](README.md): user-facing overview, setup, runtime commands, API examples, and current scope.
+- [Documentation Index](docs/index.md): curated map of all technical docs.
+- [Architecture](docs/architecture.md): backend/UI client split, provider model, state store, API boundary, and architecture gaps.
+- [Design](docs/design.md): monitoring-only rationale, decimal arithmetic, depth simulation, and tradeoffs.
+- [Modules](docs/modules.md): package-by-package guide to the repository.
+- [Data Flow](docs/data-flow.md): startup, provider ingestion, calculations, alerting, API, and TUI/web UI polling.
+- [Provider Design](docs/provider-design.md): crypto exchange providers, broker providers, discovery, and health.
+- [Arbitrage Engine](docs/arbitrage-engine.md): fee/slippage rules, order book simulation, and strategies.
+- [API Design](docs/api-design.md): authentication, endpoint behavior, snapshots, metrics, and gaps.
+- [Config Design](docs/config-design.md): `.env`, `config.yaml`, providers, instruments, strategies, and validation.
+- [Alerting and Health](docs/alerting-and-health.md): alert dedupe/cooldown and deterministic health scoring.
+- [IBKR Design](docs/ibkr-design.md): market-data-only IBKR skeleton, configured instruments, and safety guarantees.
+- [TUI Design](docs/tui-design.md): terminal UI model, tabs, rendering, detail panels, and icons.
+- [Web UI Design](docs/web-ui-design.md): React/Redux browser client, routing, API integration, state, refresh, and safety.
+- [Extension Guide](docs/extension-guide.md): how to add providers, strategies, tabs, notifiers, metrics, and storage.
+- [Limitations](docs/limitations.md): explicit non-goals and current constraints.
+- [Web UI README](web-ui/README.md): browser UI setup, configuration, local development, build, and validation.
+- [Web UI API Compatibility](web-ui/API_COMPATIBILITY.md): endpoints used, missing/partial support, and OpenAPI discrepancies.
+- [Web UI Architecture](web-ui/ARCHITECTURE.md): web app structure, Redux store, RTK Query, routing, and persistence.
+- [OpenAPI Spec](swagger.yml): machine-readable REST API description.
+- [Full LLM Context](llms-full.txt): self-contained project summary generated from docs, implementation, and tests.
+
+## Runtime Shape
+
+- Backend binary: `cmd/api`
+- TUI binary: `cmd/tui`
+- Config: `.env`, `configs/config.yaml`, `configs/config.example.yaml`
+- Main orchestrator: `internal/app`
+- REST API and metrics: `internal/api`
+- Browser CORS config: `api.cors_allowed_origins`, with loopback origins allowed automatically for local web UI development
+- Latest-state store: `internal/marketdata`
+- Arbitrage calculations: `internal/arbitrage`
+- Alerts: `internal/alerts`
+- Provider health scoring: `internal/health`
+- Crypto adapters: `internal/exchange/binance`, `internal/exchange/kraken`, `internal/exchange/publicrest`
+- Broker adapter skeleton: `internal/broker/ibkr`
+- TUI client/rendering: `internal/tui`
+- Web UI client: `web-ui` using Vite, React, TypeScript, Redux Toolkit, RTK Query, React Router, Vitest, and Testing Library
+- Screenshots: `docs/screenshots/tui.png`, `docs/screenshots/web-ui.png`
+
+## API Summary
+
+Public:
+
+- `GET /health`
+- `GET /metrics` when `metrics.prometheus_enabled=true`
+
+Browser support:
+
+- CORS preflight `OPTIONS` is handled before API-key middleware.
+- Loopback origins such as `http://localhost:<port>` and `http://127.0.0.1:<port>` are allowed for local web UI development.
+- Deployed browser origins should be configured in `api.cors_allowed_origins`.
+
+Protected with `X-API-Key`:
+
+- `GET /api/v1/prices`
+- `GET /api/v1/order-books`
+- `GET /api/v1/providers`
+- `GET /api/v1/providers/health`
+- `GET /api/v1/arbitrage/triangular`
+- `GET /api/v1/arbitrage/cross-exchange`
+- `GET /api/v1/arbitrage/spot-futures`
+- `GET /api/v1/ibkr/instruments`
+- `GET /api/v1/ibkr/fx-triangular`
+- `GET /api/v1/ibkr/crypto-futures-basis`
+- `GET /api/v1/signals/related-assets`
+- `GET /api/v1/alerts`
+- `GET /api/v1/exchanges/health`
+- `GET /api/v1/snapshot`
+
+## Important Constraints
+
+- Monitoring only: no real trading, no order placement, no IBKR orders, no account/position management.
+- The TUI and web UI must remain API clients and must not connect directly to providers.
+- Financial math uses `shopspring/decimal`; avoid `float64` for prices, fees, quantities, and percentages.
+- `internal/marketdata.Store` is in-memory latest-state only; historical storage is external.
+- OKX, Bybit, Coinbase, Gate.io, and Bitget are disabled by default and currently support spot public REST only.
+- IBKR support is partial and market-data-only; live TWS/Gateway data transport and contract lookup are not complete.
+- Prometheus output is currently rendered manually in `internal/api/server.go`.
+- Web UI API types are generated from `swagger.yml`; run `npm run generate:api` in `web-ui/` after changing the OpenAPI spec.
+- The web UI preserves decimal API values in typed models and converts them only for display/filtering decisions.
+- Web UI price coloring mirrors the TUI: best bid and best ask are green, worst bid and worst ask are red, ties are neutral, and stale rows remain marked.
+
+## Common Commands
+
+```bash
+go run ./cmd/api validate-config --config ./configs/config.yaml
+go run ./cmd/api
+go run ./cmd/tui
+go test ./...
+
+cd web-ui
+npm install
+npm run generate:api
+npm run dev
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+```

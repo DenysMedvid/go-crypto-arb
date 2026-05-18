@@ -1,0 +1,26 @@
+flowchart LR
+    Provider[Provider REST/WebSocket]
+    Adapter[Provider Adapter\nCrypto Exchanges / IBKR]
+    Normalize[Normalize\nTicker / OrderBook / FundingRate]
+    Store[(In-Memory Store)]
+    Calc[Arbitrage Calculators]
+    Alert[Alert Engine]
+    Health[Health Scoring]
+    API[REST API]
+    TUI[TUI Client]
+    WebUI[Web UI Client]
+    Metrics[Prometheus Metrics]
+
+    Provider --> Adapter
+    Adapter --> Normalize
+    Normalize --> Store
+    Store --> Calc
+    Calc --> Store
+    Store --> Alert
+    Alert --> Store
+    Adapter --> Health
+    Health --> Store
+    Store --> API
+    API --> TUI
+    API --> WebUI
+    API --> Metrics

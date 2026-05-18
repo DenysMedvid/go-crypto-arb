@@ -1,0 +1,531 @@
+# go-crypto-arb Full LLM Context
+
+This file is a self-contained LLM-oriented project brief generated from the repository documentation, implementation, and unit tests. Prefer the source files for exact code, but this document captures the current architecture, API, data contracts, behavior, and test coverage in one place.
+
+Current version: `v2.1.0`
+
+## Project Purpose
+
+`go-crypto-arb` is a monitoring-only arbitrage detection system written in Go. It collects market data from crypto exchanges and optional broker providers, normalizes that data into internal models, calculates estimated arbitrage opportunities, emits health and alert state, exposes the latest snapshot through a REST API, and renders that state in separate terminal and browser UIs.
+
+The project intentionally does not trade. It does not place orders, automate buy/sell behavior, submit IBKR orders, maintain balances, track positions, or model execution risk beyond read-only order book simulation.
+
+## Runtime Components
+
+- `cmd/api`: backend service entrypoint and `validate-config` command.
+- `cmd/tui`: terminal UI entrypoint.
+- `web-ui`: separate Vite React/TypeScript browser client using Redux Toolkit, RTK Query, and React Router.
+- `internal/app`: orchestrates providers, calculations, alerts, health, store writes, and HTTP service startup.
+- `internal/api`: REST handlers, API key middleware, and Prometheus text output.
+- `internal/config`: YAML config structs, `.env` loading, defaults, env overrides, decimal/duration parsing, and validation.
+- `internal/exchange`: shared crypto exchange models, symbol normalization, decimal parsing, and order book normalization.
+- `internal/exchange/binance`: Binance public market-data adapter.
+- `internal/exchange/kraken`: Kraken public market-data adapter.
+- `internal/exchange/publicrest`: shared spot public-REST adapter for OKX, Bybit, Coinbase, Gate.io, and Bitget.
+- `internal/broker/ibkr`: IBKR broker market-data provider skeleton for configured instruments and health.
+- `internal/provider`: target provider interfaces for crypto exchanges and brokers.
+- `internal/instrument`: configured instrument universe helpers.
+- `internal/marketdata`: concurrency-safe in-memory latest-state store.
+- `internal/arbitrage`: fee math, depth-aware simulation, triangular/cross-exchange/spot-futures/broker-basis calculators, and related asset signals.
+- `internal/alerts`: in-memory alert engine with deduplication, cooldown, severity, and repeat thresholds.
+- `internal/health`: deterministic provider health scoring.
+- `internal/tui`: backend API client, Bubble Tea model, rendering, detail panels, tabs, and icon fallback.
+- `docs/screenshots`: checked-in TUI and web UI example screenshots referenced by the root README.
+
+## Backend and UI Client Boundary
+
+The backend is the only process that talks to external exchanges or IBKR. The TUI only calls the backend REST API through `internal/tui/client.go`, currently using `GET /api/v1/snapshot` with `X-API-Key`. The web UI only calls the backend REST API through `web-ui/src/api/arbApi.ts`, using `/health`, `/api/v1/snapshot`, and focused `/api/v1/*` endpoints with `X-API-Key` when configured.
+
+Neither UI calculates arbitrage, places orders, connects to providers directly, stores exchange secrets, or talks to IBKR directly.
+
+This separation keeps credentials and provider connection logic inside one service, prevents UI refreshes from multiplying exchange rate-limit pressure, and lets multiple clients observe one consistent backend state.
+
+## Provider Model
+
+The target provider abstraction lives in `internal/provider/provider.go`:
+
+- `MarketDataProvider`: name/type, lifecycle, health, latest tickers/order books, and market discovery.
+- `CryptoExchangeProvider`: market-data provider plus funding rates.
+- `BrokerProvider`: market-data provider plus account and portfolio placeholders.
+
+The current runtime still uses `internal/exchange.Exchange` for crypto exchange adapters. IBKR is separate under `internal/broker/ibkr`.
+
+Configured provider types:
+
+- `crypto_exchange`: OKX, Bybit, Binance, Kraken, Coinbase, Gate.io, and Bitget.
+- `broker`: IBKR.
+
+Binance and Kraken expose spot/futures tickers, order books, funding rates, markets, and health. OKX, Bybit, Coinbase, Gate.io, and Bitget are disabled by default and currently expose spot public REST tickers/order books, markets, and health. IBKR is currently market-data-only and partial: it exposes configured instruments and health/status, but live TWS/Gateway market-data transport and contract/conId lookup are not fully implemented.
+
+## Monitoring-Only Safety Rules
+
+- No real trading.
+- No order execution.
+- No buy/sell automation.
+- No paper trading module in this version.
+- No IBKR orders.
+- No balance-aware opportunity filtering.
+- No private account balances for exchanges.
+- IBKR `trading_enabled` must remain `false`; config validation treats `true` as a hard error.
+- The TUI and web UI must remain display clients only.
+
+## Configuration
+
+Environment is loaded by `config.LoadEnv`:
+
+- `API_KEY`: required for protected API routes.
+- `CONFIG_PATH`: defaults to `./configs/config.yaml`.
+- `HTTP_ADDR`: optional HTTP listen address override.
+- `IBKR_ENABLED`, `IBKR_HOST`, `IBKR_PORT`, `IBKR_CLIENT_ID`: optional IBKR overrides.
+
+YAML config is loaded into `config.Config`. Major sections:
+
+- `app`: version, refresh interval, stale price age.
+- `api`: HTTP address and `cors_allowed_origins` for deployed browser clients. Loopback browser origins are allowed automatically for local web UI development.
+- `providers`: provider model for crypto exchanges and IBKR.
+- `exchanges`: legacy/current exchange adapter config.
+- `market_data`: order book depth and stale thresholds.
+- `simulation`: quote asset, trade sizes, max slippage.
+- `assets`: preferred assets, stable bases, quote assets.
+- `instrument_universes`: configured IBKR/other instruments.
+- `strategies`: titled strategy configs and provider filters.
+- `arbitrage`: older result-limit strategy config.
+- `signals`: related asset signals.
+- `alerts`: thresholds, cooldown, repeat threshold, max results.
+- `metrics`: Prometheus enablement and path.
+- `health`: scoring penalties.
+- `tui`: backend URL, refresh behavior, emoji/ASCII mode, tab config.
+
+Important config behavior from tests:
+
+- Durations parse from strings such as `2s` and `5m`.
+- Decimals parse from YAML numeric or string values into `shopspring/decimal`.
+- Missing `API_KEY` is a validation error.
+- Unsupported enabled exchanges/providers are validation errors.
+- Supported crypto exchange providers are OKX, Bybit, Binance, Kraken, Coinbase, Gate.io, and Bitget.
+- Public-REST adapter futures enablement for OKX, Bybit, Coinbase, Gate.io, and Bitget emits a partial-support warning because only spot REST is implemented.
+- IBKR `trading_enabled: true` is a validation error.
+- If no live market discovery data is supplied to validation, market availability checks are skipped with a warning.
+
+Web UI configuration uses Vite environment variables:
+
+- `VITE_API_BASE_URL`: defaults to `http://localhost:8080`.
+- `VITE_API_KEY`: optional development API key.
+
+The web UI can also store an API key in browser local storage when the user explicitly saves it in Settings. Documentation warns that local storage is readable by scripts on the same origin.
+
+## Data Flow
+
+Startup:
+
+1. `cmd/api` loads `.env` and YAML config.
+2. Environment overrides are applied.
+3. `internal/app.New` constructs enabled exchange adapters and broker adapters.
+4. `App.Run` starts providers, runs an initial calculation, starts the calculation loop, and serves HTTP.
+
+Calculation loop:
+
+1. Exchange adapters provide spot tickers, futures tickers, funding rates, order books, markets, and health.
+2. Broker adapters provide broker tickers, order books, markets, and health.
+3. Health is scored with `internal/health.Score`.
+4. `internal/marketdata.Store` is updated with latest data.
+5. Arbitrage calculators produce triangular, cross-exchange, spot-futures, IBKR FX triangular, broker futures basis, and related asset signal outputs.
+6. `alerts.Engine.Evaluate` updates in-memory alert state.
+7. REST endpoints serialize the latest store snapshot.
+
+UI refresh:
+
+- The TUI polls `GET /api/v1/snapshot` and renders tabs from one aggregate payload.
+- The web UI uses RTK Query polling with the configured refresh interval, defaulting to `2000ms`.
+- The web UI calls `/health` without an API key and protected `/api/v1/*` endpoints with `X-API-Key` when configured.
+- Manual web refresh invalidates active RTK Query tags. Pause/resume disables or enables polling.
+- When a web refetch fails, RTK Query keeps the last successful data visible and the UI marks it as stale or partial where applicable.
+
+## State Store
+
+`internal/marketdata.Store` is concurrency-safe and latest-state-only. It does not store history and loses state on restart.
+
+`marketdata.Snapshot` JSON fields:
+
+- `version`
+- `prices`: map of exchange/provider to spot tickers.
+- `futures_prices`: map of exchange/provider to futures tickers.
+- `order_books`: full normalized order books.
+- `order_book_summary`: compact order book summaries.
+- `funding_rates`
+- `markets`
+- `triangular_arbitrage`
+- `cross_exchange_arbitrage`
+- `spot_futures_arbitrage`
+- `related_asset_signals`
+- `ibkr_instruments`
+- `ibkr_fx_triangular`
+- `crypto_spot_vs_ibkr_futures_basis`
+- `alerts`
+- `exchange_health`
+- `provider_health`
+
+## Core Models
+
+Market data models live in `internal/exchange/model.go`.
+
+- `Ticker`: provider/exchange/broker identity, optional instrument metadata, symbol/base/quote, market type, asset class, bid, ask, last, updated time.
+- `FundingRate`: exchange, symbol, rate, next funding time, updated time.
+- `OrderBookLevel`: price and quantity.
+- `OrderBook`: provider/exchange/broker identity, symbol, instrument metadata, base/quote, market type, asset class, bids, asks, updated time, limited depth flag.
+- `MarketInfo`: provider/exchange/broker identity, symbol/instrument metadata, asset class, market type, active flag.
+- `ExchangeHealth`: provider type, enabled flags, connection flags, data freshness, reconnect/stale counts, partial support, score, and status.
+
+Financial values use `shopspring/decimal.Decimal`. JSON APIs serialize decimals through the decimal package behavior.
+
+## Arbitrage and Simulation
+
+The v2 calculators are depth-aware when enabled. Buy simulation consumes asks from lowest ask upward. Sell simulation consumes bids from highest bid downward. Taker fees are applied to simulated legs. Partial fills are reported through `complete_fill=false` and related status fields. Slippage is calculated against best visible price.
+
+Implemented strategy outputs:
+
+- `TriangularOpportunityV2`
+- `CrossExchangeOpportunityV2`
+- `SpotFuturesOpportunityV2`
+- `BrokerFuturesBasisOpportunity`
+- `RelatedAssetGroupSignal`
+
+Legacy ticker-based calculators still exist and are covered by tests, but current APIs expose v2 strategy results.
+
+IBKR-specific strategy endpoints are partial because they depend on broker market data availability:
+
+- IBKR FX triangular.
+- Crypto spot vs IBKR futures basis.
+
+## Alerts
+
+Alerts are generated in memory by `alerts.Engine`. Supported alert types:
+
+- `triangular_arbitrage`
+- `cross_exchange_arbitrage`
+- `spot_futures_basis`
+- `ibkr_fx_triangular_arbitrage`
+- `crypto_spot_vs_ibkr_futures_basis`
+- `exchange_data_stale`
+- `exchange_disconnected`
+- `health_score_low`
+
+Supported severities:
+
+- `info`
+- `warning`
+- `critical`
+
+Alerts deduplicate by a stable key, observe `alerts.cooldown`, repeat when value changes by at least `repeat_if_profit_changes_by_percent`, and expose `repeat_count`. Telegram, email, and webhook notifiers are intentionally not implemented yet.
+
+## Health Scoring
+
+Health starts at 100 and subtracts configured penalties:
+
+- broker gateway disconnected.
+- WebSocket disconnected without REST fallback.
+- REST fallback active.
+- stale ticker/order book data.
+- last error.
+- reconnect count times reconnect penalty.
+- partial support.
+
+Statuses:
+
+- `ok`: score at least 90 and data fresh.
+- `disconnected`: broker gateway disconnected or WebSocket disconnected without fallback.
+- `stale`: data not fresh.
+- `degraded`: remaining non-OK states.
+
+Scores are clamped to 0..100.
+
+## REST API
+
+Public endpoints:
+
+- `GET /health`: returns status, version, and current UTC time.
+- `GET /metrics`: public Prometheus text when `metrics.prometheus_enabled=true`.
+
+Browser/CORS behavior:
+
+- CORS preflight `OPTIONS` requests are handled before API-key middleware.
+- Loopback origins such as `http://localhost:<port>` and `http://127.0.0.1:<port>` are allowed automatically for local web UI development.
+- Deployed web UI origins should be listed under `api.cors_allowed_origins`.
+- Protected real requests still require `X-API-Key`; CORS does not bypass API authentication.
+
+All `/api/v1/*` endpoints require `X-API-Key`. Missing server-side API key returns `401 {"error":"API key is not configured"}`. Missing or invalid request key returns `401 {"error":"invalid API key"}`.
+
+Protected endpoints:
+
+- `GET /api/v1/prices`: returns `prices`, `futures_prices`, and `funding_rates`.
+- `GET /api/v1/order-books`: without filters returns `order_book_summary`; with any supported filter returns full matching `OrderBook` records. Crypto provider filters may include `okx`, `bybit`, `binance`, `kraken`, `coinbase`, `gateio`, or `bitget`.
+- `GET /api/v1/providers`: returns configured providers sorted by name, including provider config.
+- `GET /api/v1/providers/health`: returns provider health map.
+- `GET /api/v1/arbitrage/triangular`: returns triangular v2 results.
+- `GET /api/v1/arbitrage/cross-exchange`: returns cross-exchange v2 results.
+- `GET /api/v1/arbitrage/spot-futures`: returns spot-futures v2 results.
+- `GET /api/v1/ibkr/instruments`: returns configured IBKR instrument market info.
+- `GET /api/v1/ibkr/fx-triangular`: returns IBKR FX triangular results when data exists.
+- `GET /api/v1/ibkr/crypto-futures-basis`: returns crypto spot vs IBKR futures basis results when data exists.
+- `GET /api/v1/signals/related-assets`: returns related asset group signals.
+- `GET /api/v1/alerts`: returns latest in-memory alerts.
+- `GET /api/v1/exchanges/health`: legacy exchange/provider health endpoint.
+- `GET /api/v1/snapshot`: returns the aggregate `marketdata.Snapshot` consumed by the TUI.
+
+`GET /api/v1/order-books` filters:
+
+- `provider`: lower-case provider identity such as `binance`, `kraken`, or `ibkr`.
+- `exchange`: exchange display name such as `Binance`.
+- `symbol`: canonical symbol such as `BTC/USDT`.
+- `market`: `spot` or `futures`.
+
+Prometheus metric families rendered by `internal/api/server.go`:
+
+- `go_crypto_arb_price_bid`
+- `go_crypto_arb_price_ask`
+- `go_crypto_arb_price_last`
+- `go_crypto_arb_price_spread`
+- `go_crypto_arb_price_age_seconds`
+- `go_crypto_arb_funding_*`
+- `go_crypto_arb_order_book_*`
+- `go_crypto_arb_market_active`
+- `go_crypto_arb_arbitrage_profit_percent`
+- `go_crypto_arb_arbitrage_*`
+- `go_crypto_arb_related_asset_*`
+- `go_crypto_arb_alert_*`
+- `go_crypto_arb_provider_connected`
+- `go_crypto_arb_provider_*`
+- `go_crypto_arb_ws_reconnect_total`
+- `go_crypto_arb_stale_price_total`
+- `go_crypto_arb_stale_order_book_total`
+- `go_crypto_arb_order_book_age_seconds`
+- `go_crypto_arb_health_score`
+
+See `swagger.yml` for a machine-readable OpenAPI 3 specification of the implemented REST surface.
+
+## TUI
+
+The TUI uses `internal/tui.Client.Snapshot`, which calls:
+
+```http
+GET /api/v1/snapshot
+X-API-Key: <API_KEY>
+```
+
+Controls documented in README:
+
+- `q` or `Ctrl+C`: quit.
+- `r`: manual refresh.
+- `p`: pause/resume auto-refresh.
+- `f`: profitable-only filter.
+- `up/down`: select row.
+- `Enter`: open detail panel.
+- `Esc`: close detail panel.
+- `?`: help overlay.
+- `1` through `8`: switch tabs.
+
+Emoji/icon rendering has ASCII fallback and tests ensure rendering does not panic when emoji is disabled.
+
+The root README references the TUI screenshot at `docs/screenshots/tui.png`.
+
+## Web UI
+
+The web UI lives in `web-ui/` as a separate browser application. It is an alternative client to the TUI, not a replacement. It is monitoring-only and has no trading buttons, order forms, exchange secret inputs, private key handling, or IBKR order placement.
+
+Stack:
+
+- Vite.
+- React.
+- TypeScript with strict compiler settings.
+- Redux Toolkit and RTK Query.
+- React Router.
+- Vitest and React Testing Library.
+- ESLint and Prettier.
+
+No UI component library is currently used. Styling is implemented in focused CSS under `web-ui/src/styles.css`.
+
+Important web UI files:
+
+- `web-ui/package.json`: npm scripts and dependencies.
+- `web-ui/src/api/arbApi.ts`: RTK Query endpoints, dynamic base URL, API-key header handling, latency/error tracking.
+- `web-ui/src/api/schema.ts`: generated TypeScript schemas from root `swagger.yml`.
+- `web-ui/src/app/store.ts`: Redux store setup.
+- `web-ui/src/features/settingsSlice.ts`: API base URL, API key source, refresh interval, compact mode, icons, profitable-only filter, theme.
+- `web-ui/src/features/filtersSlice.ts`: page filters for prices and alerts.
+- `web-ui/src/features/apiStatusSlice.ts`: last success/failure, latency, auth failure, backend availability, error details.
+- `web-ui/src/components`: layout, shared tables/cards/status badges, price table, IBKR trading status.
+- `web-ui/src/pages`: routed screen implementations.
+- `web-ui/src/utils`: formatting, filtering, stale-data, API errors, price highlighting, status helpers.
+
+Routes:
+
+- `/`: Crypto Dashboard.
+- `/prices`: Prices.
+- `/triangular`: Crypto Triangular Arbitrage.
+- `/cross-exchange`: Cross-Exchange Arbitrage.
+- `/spot-futures`: Crypto Spot-Futures Arbitrage.
+- `/signals`: Related Asset Signals.
+- `/alerts`: Alerts.
+- `/provider-health`: Provider / Exchange Health.
+- `/ibkr`: IBKR Monitor.
+- `/status`: API / Backend Status.
+- `/settings`: Settings.
+
+Web API rules:
+
+- `GET /health` is public and receives no API key header.
+- Protected `/api/v1/*` requests receive `X-API-Key` when a key is configured.
+- API types are generated from `swagger.yml` with `cd web-ui && npm run generate:api`.
+- Decimals are preserved as API-returned JSON values in typed models; the UI converts only for rendering decisions such as sorting, filtering, color classification, and stale checks.
+- Missing endpoints and partial backend support are documented in `web-ui/API_COMPATIBILITY.md` and rendered as empty states rather than fake data.
+
+Web UI state design:
+
+- RTK Query owns server cache and request state.
+- Custom slices store settings, filters, and API status only.
+- Safe settings are persisted to local storage.
+- The API key is persisted only after explicit user action; `VITE_API_KEY` is preferred for local development.
+
+Web UI refresh and errors:
+
+- Default polling interval is `2000ms`.
+- Manual refresh invalidates active RTK Query tags.
+- Pause/resume disables or enables polling.
+- The header shows backend status, base URL, last success, latency, refresh countdown, and global errors.
+- `401` is shown as authentication failure.
+- fetch/network failures are shown as backend unavailable.
+- Cached successful data remains visible after refetch failures and is marked stale or partial where appropriate.
+
+Web UI price coloring mirrors the TUI:
+
+- Highest bid within a visible `market_type + symbol` bucket is green.
+- Lowest bid within that bucket is red.
+- Lowest ask within that bucket is green.
+- Highest ask within that bucket is red.
+- Tied values are neutral.
+- Stale rows remain visibly marked.
+
+The implementation lives in `web-ui/src/utils/priceHighlights.ts` and is used by `PriceTable` and dashboard price cards.
+
+The root README references the web UI screenshot at `docs/screenshots/web-ui.png`.
+
+## Current Limitations
+
+- No trading or execution.
+- No account/portfolio snapshot beyond not-implemented placeholders.
+- No balance-aware filtering.
+- No withdrawal/deposit fee, transfer-time, chain congestion, min-size, or tick-size modeling.
+- No latency or executable-arbitrage guarantee.
+- Order book simulation can become stale before execution.
+- IBKR support is partial and may require market-data subscriptions.
+- OKX, Bybit, Coinbase, Gate.io, and Bitget currently support spot public REST only; futures, funding, and WebSocket support are not implemented for those adapters yet.
+- No IBKR contract lookup or conId resolution.
+- No historical database in the app.
+- `/api/v1/snapshot` can grow without pagination.
+- No role-based auth or user management beyond a single API key.
+- Web UI uses RTK Query polling rather than real-time streaming.
+- Deployed web UI origins must be configured explicitly with `api.cors_allowed_origins`.
+- No dedicated `internal/metrics` package.
+- `GET /api/v1/metrics/snapshot` is not implemented; tests assert it returns `404`.
+- No alert acknowledgement or silence model.
+- No Telegram/email/webhook notifier implementation.
+- Provider management is embedded in `internal/app`.
+
+## Extension Guidance
+
+To add a crypto exchange:
+
+1. Create `internal/exchange/<name>`.
+2. Implement exchange/provider lifecycle, health, latest market data, funding rates, order books, markets, and discovery.
+3. Normalize symbols into `BASE/QUOTE`.
+4. Normalize outputs into `exchange.Ticker`, `exchange.OrderBook`, `exchange.FundingRate`, and `exchange.MarketInfo`.
+5. Add config, wire in `internal/app.New`, and add parser/order-book/health tests.
+
+To add a broker:
+
+1. Create `internal/broker/<name>`.
+2. Implement `provider.BrokerProvider`.
+3. Define instrument mapping and universe support.
+4. Wire in `internal/app.New`.
+5. Surface data through backend snapshots/API only.
+6. Keep trading disabled unless a future version explicitly introduces paper/execution modules.
+
+To add an arbitrage strategy:
+
+1. Define strategy config in `internal/config`.
+2. Define output model in `internal/arbitrage/model.go`.
+3. Use tickers, order books, funding, provider metadata, and fees as inputs.
+4. Use decimal math and depth-aware simulation helpers.
+5. Wire calculation in `App.calculate`.
+6. Store results in `marketdata.Store`.
+7. Add an API endpoint and TUI rendering.
+8. Add tests for full liquidity, partial liquidity, fees, slippage, thresholds, and sorting.
+
+To add a web UI page or API view:
+
+1. Update `swagger.yml` if the API contract changes.
+2. Run `cd web-ui && npm run generate:api`.
+3. Add or extend the RTK Query endpoint in `web-ui/src/api/arbApi.ts`.
+4. Add a routed page under `web-ui/src/pages`.
+5. Add navigation in `web-ui/src/components/Layout.tsx`.
+6. Store page filters in `web-ui/src/features/filtersSlice.ts` when they need to persist across navigation.
+7. Add component and utility tests with Vitest and React Testing Library.
+
+## Unit Test Coverage
+
+Tests currently cover:
+
+- API key middleware accepts valid `X-API-Key` and rejects missing/invalid keys.
+- API CORS middleware allows loopback browser origins, supports configured origins, and answers preflight before API-key checks.
+- Config parsing for v2 fields, duration/decimal loading, metrics, TUI tabs, providers, and IBKR config.
+- Config validation for missing API key, IBKR trading safety, crypto spot disabled confirmation, and missing discovered markets.
+- Health scoring for healthy exchanges, penalties, stale status, and score clamping.
+- Exchange helpers for bid/ask validation, canonical symbols, joined-symbol splitting, and Kraken/Binance parser edge cases.
+- Depth simulation for full fills, multi-level slippage, partial liquidity, empty order books, and fee calculation.
+- Legacy arbitrage calculators for taker fee application, triangular, cross-exchange, and spot-futures calculations.
+- v2 arbitrage calculators for triangular, cross-exchange, spot-futures, full liquidity, partial liquidity, and funding-adjusted estimates.
+- Broker calculators for IBKR FX triangular and crypto spot vs IBKR futures basis.
+- Alert deduplication/cooldown and repeat behavior when profit changes enough.
+- TUI icon fallback and selected rendering alignment behavior.
+- Web UI formatting, filtering, settings persistence, stale-data display, profitable-only filtering, API error classification, TUI-equivalent price highlighting, summary cards, and IBKR `Trading: DISABLED` rendering.
+
+Current backend verification command:
+
+```bash
+go test ./...
+```
+
+Current web UI verification commands:
+
+```bash
+cd web-ui
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+```
+
+## Source Document Map
+
+- `README.md`: overview, runbook, API examples, alerts, health, and TUI controls.
+- `docs/index.md`: documentation table of contents.
+- `docs/architecture.md`: system shape, backend/UI client boundary, provider architecture, API boundary, and gaps.
+- `docs/design.md`: design decisions and tradeoffs.
+- `docs/modules.md`: package responsibilities and maintainer notes.
+- `docs/data-flow.md`: flow through providers, store, calculators, alerts, API, TUI, and web UI.
+- `docs/web-ui-design.md`: browser UI architecture, routes, RTK Query integration, state, refresh, CORS, price coloring, screens, and tests.
+- `docs/provider-design.md`: provider model and adapter expectations.
+- `docs/arbitrage-engine.md`: simulation and calculation details.
+- `docs/api-design.md`: implemented API endpoints and response notes.
+- `docs/config-design.md`: config structure and validation behavior.
+- `docs/alerting-and-health.md`: alert engine and scoring behavior.
+- `docs/ibkr-design.md`: IBKR provider scope and safety.
+- `docs/tui-design.md`: TUI model/client/rendering.
+- `web-ui/README.md`: web UI install, configuration, local development, build, validation, and TUI relationship.
+- `web-ui/API_COMPATIBILITY.md`: web UI endpoint usage, missing/partial support, OpenAPI source, and discrepancies.
+- `web-ui/ARCHITECTURE.md`: web UI structure, Redux store, RTK Query layer, routing, persistence, error handling, and safety.
+- `docs/patterns.md`: architectural patterns used in the codebase.
+- `docs/extension-guide.md`: extension workflow.
+- `docs/limitations.md`: current limitations and non-goals.
+- `docs/diagrams/*.mmd`: Mermaid diagrams for system context, containers, components, data flow, and sequences, including web UI refresh.
+- `docs/screenshots/tui.png` and `docs/screenshots/web-ui.png`: visual examples embedded in the root README.

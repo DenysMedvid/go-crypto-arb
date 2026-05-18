@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant Browser as Browser / React Page
+    participant Store as Redux Store
+    participant Query as RTK Query API Layer
+    participant API as Backend API
+    participant State as marketdata.Store
+
+    Browser->>Store: read settings, filters, refresh interval
+    Browser->>Query: subscribe to endpoint query
+    Query->>API: OPTIONS preflight when needed
+    API-->>Query: CORS headers
+    Query->>API: GET /api/v1/* + X-API-Key
+    API->>State: Snapshot or focused latest-state read
+    State-->>API: latest data
+    API-->>Query: JSON response
+    Query->>Store: cache data and request status
+    Store-->>Browser: render cards, tables, stale/error state

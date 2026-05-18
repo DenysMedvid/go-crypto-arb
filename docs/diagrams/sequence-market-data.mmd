@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant Provider as External Provider
+    participant Adapter as Provider Adapter
+    participant App as internal/app
+    participant Store as marketdata.Store
+    participant Health as health.Score
+
+    Provider-->>Adapter: REST poll or WebSocket message
+    Adapter->>Adapter: parse provider payload
+    Adapter->>Adapter: normalize symbols and decimals
+    App->>Adapter: GetLatestTickers()
+    App->>Adapter: GetLatestOrderBooks()
+    App->>Adapter: GetFundingRates()
+    Adapter-->>App: normalized latest state
+    App->>Store: Upsert tickers / books / funding
+    App->>Adapter: Health()
+    Adapter-->>App: raw health snapshot
+    App->>Health: Score(config, health)
+    Health-->>App: scored health
+    App->>Store: SetExchangeHealth()

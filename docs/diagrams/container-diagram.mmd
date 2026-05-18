@@ -1,0 +1,31 @@
+flowchart TB
+    subgraph Host[Runtime Host]
+        Env[.env\nAPI_KEY, CONFIG_PATH, HTTP_ADDR, IBKR_*]
+        YAML[config.yaml\nproviders, instruments, strategies, TUI]
+        APIBin[API Binary\ncmd/api]
+        TUIBin[TUI Binary\ncmd/tui]
+        WebUI[Web UI Static App\nweb-ui/dist or Vite]
+        Store[(In-Memory Latest State)]
+    end
+
+    subgraph External[External Systems]
+        Binance[Binance]
+        Kraken[Kraken]
+        PublicREST[OKX / Bybit / Coinbase\nGate.io / Bitget]
+        IBKR[IBKR Gateway]
+        Prom[Prometheus]
+    end
+
+    Env --> APIBin
+    YAML --> APIBin
+    Env --> TUIBin
+    YAML --> TUIBin
+    Env -. VITE_API_* .-> WebUI
+    APIBin --> Store
+    APIBin --> Binance
+    APIBin --> Kraken
+    APIBin -->|spot REST| PublicREST
+    APIBin -. partial .-> IBKR
+    TUIBin -->|HTTP API| APIBin
+    WebUI -->|HTTP API + CORS| APIBin
+    Prom -->|/metrics| APIBin

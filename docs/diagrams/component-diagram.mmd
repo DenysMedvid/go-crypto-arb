@@ -1,0 +1,28 @@
+flowchart TB
+    Config[Config Loader\ninternal/config]
+    App[App Orchestrator\ninternal/app]
+    ProviderBuild[Provider Construction]
+    Workers[Market Data Workers\nREST / WebSocket loops]
+    Store[(State Store\ninternal/marketdata)]
+    Engine[Arbitrage Engine\ninternal/arbitrage]
+    Signals[Related Signals\nSignalEngine]
+    Alerts[Alert Engine\ninternal/alerts]
+    Health[Health Scorer\ninternal/health]
+    APIHandlers[API Handlers\ninternal/api]
+    Metrics[Metrics Exporter\ninternal/api]
+
+    Config --> App
+    App --> ProviderBuild
+    ProviderBuild --> Workers
+    Workers --> App
+    App --> Store
+    Store --> Engine
+    Engine --> Store
+    Store --> Signals
+    Signals --> Store
+    Store --> Alerts
+    Alerts --> Store
+    Workers --> Health
+    Health --> Store
+    Store --> APIHandlers
+    Store --> Metrics

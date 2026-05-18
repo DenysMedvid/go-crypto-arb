@@ -1,0 +1,1269 @@
+openapi: 3.0.3
+info:
+  title: go-crypto-arb API
+  version: v2.1.0
+  description: |
+    REST API for go-crypto-arb, a monitoring-only arbitrage detection system.
+
+    The service exposes latest in-memory market data, order book summaries,
+    arbitrage estimates, alerts, provider health, an aggregate TUI snapshot,
+    and Prometheus metrics.
+
+    Supported crypto exchange platform identities are `okx`, `bybit`,
+    `binance`, `kraken`, `coinbase`, `gateio`, and `bitget`. OKX, Bybit,
+    Coinbase, Gate.io, and Bitget are disabled by default in configuration and
+    currently use spot public REST market data.
+
+    All `/api/v1/*` endpoints require the `X-API-Key` header. `/health` and
+    `/metrics` are public; `/metrics` is only registered when Prometheus metrics
+    are enabled in configuration.
+
+    This application is read-only. It does not place orders, execute trades,
+    automate buy/sell actions, or submit IBKR orders.
+servers:
+  - url: http://localhost:8080
+    description: Default local backend
+tags:
+  - name: Public
+  - name: Market Data
+  - name: Providers
+  - name: Arbitrage
+  - name: IBKR
+  - name: Signals
+  - name: Alerts
+  - name: Metrics
+  - name: Snapshot
+paths:
+  /health:
+    get:
+      tags:
+        - Public
+      summary: Get service health
+      description: Public endpoint returning basic service status, configured version, and current UTC time.
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service health.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /metrics:
+    get:
+      tags:
+        - Public
+        - Metrics
+      summary: Get Prometheus metrics
+      description: |
+        Public Prometheus text endpoint, registered only when `metrics.prometheus_enabled=true`.
+
+        The endpoint is rendered from the same latest-state snapshot consumed by the TUI. It includes price, funding,
+        order book, market/instrument, arbitrage, related-signal, alert, and provider-health metric families.
+      operationId: getPrometheusMetrics
+      responses:
+        "200":
+          description: Prometheus text exposition format.
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                sample:
+                  value: |
+                    go_crypto_arb_price_bid{market="spot",provider="binance",symbol="BTC/USDT"} 67210.20
+                    go_crypto_arb_price_ask{market="spot",provider="binance",symbol="BTC/USDT"} 67212.10
+                    go_crypto_arb_price_spread{market="spot",provider="binance",symbol="BTC/USDT"} 1.90
+                    go_crypto_arb_price_age_seconds{market="spot",provider="binance",symbol="BTC/USDT"} 1.204
+                    go_crypto_arb_funding_rate{exchange="binance",symbol="BTC/USDT"} 0.0001
+                    go_crypto_arb_order_book_best_bid{exchange="binance",market="spot",provider="binance",symbol="BTC/USDT"} 67210.20
+                    go_crypto_arb_order_book_bid_levels{exchange="binance",market="spot",provider="binance",symbol="BTC/USDT"} 20
+                    go_crypto_arb_market_active{asset_class="fx",broker="ibkr",display_name="EUR/USD",exchange="ibkr",instrument_id="EUR_USD",market="spot",provider="ibkr",symbol="EUR/USD"} 1
+                    go_crypto_arb_arbitrage_profit_percent{buy_exchange="binance",buy_provider="binance",exchange="",provider="",sell_exchange="kraken",sell_provider="kraken",strategy="Cross-Exchange",symbol="BTC/USDT",type="cross_exchange"} 0.019
+                    go_crypto_arb_arbitrage_trade_size{buy_exchange="binance",buy_provider="binance",exchange="",provider="",sell_exchange="kraken",sell_provider="kraken",strategy="Cross-Exchange",symbol="BTC/USDT",type="cross_exchange"} 1000
+                    go_crypto_arb_related_asset_change_percent{asset="BTC",exchange="binance",group="BTC ecosystem",symbol="BTC/USDT"} 1.1
+                    go_crypto_arb_alert_active{exchange="",severity="warning",status="active",symbol="BTC/USDT",type="cross_exchange_arbitrage"} 1
+                    go_crypto_arb_provider_websocket_connected{exchange="binance",provider="binance",status="ok"} 1
+                    go_crypto_arb_health_score{provider="ibkr"} 40
+        "404":
+          description: Endpoint is not registered when Prometheus metrics are disabled.
+  /api/v1/prices:
+    get:
+      tags:
+        - Market Data
+      summary: Get latest tickers and funding rates
+      operationId: getPrices
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Latest spot tickers, futures tickers, and funding rates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PricesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/order-books:
+    get:
+      tags:
+        - Market Data
+      summary: Get order book summaries or filtered full order books
+      description: |
+        Without query filters, returns compact `OrderBookSummary` records.
+        When any supported filter is supplied, returns full matching `OrderBook`
+        records.
+      operationId: getOrderBooks
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: provider
+          in: query
+          description: Lower-case provider identity such as `okx`, `bybit`, `binance`, `kraken`, `coinbase`, `gateio`, `bitget`, or `ibkr`.
+          schema:
+            type: string
+            enum:
+              - okx
+              - bybit
+              - binance
+              - kraken
+              - coinbase
+              - gateio
+              - bitget
+              - ibkr
+          example: binance
+        - name: exchange
+          in: query
+          description: Exchange display name such as `Binance` or `Kraken`.
+          schema:
+            type: string
+          example: Binance
+        - name: symbol
+          in: query
+          description: Canonical symbol.
+          schema:
+            type: string
+          example: BTC/USDT
+        - name: market
+          in: query
+          description: Market type.
+          schema:
+            $ref: "#/components/schemas/MarketType"
+          example: spot
+      responses:
+        "200":
+          description: Compact summaries by default, full order books when filtered.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/OrderBookSummary"
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/OrderBook"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/providers:
+    get:
+      tags:
+        - Providers
+      summary: Get configured providers
+      operationId: getProviders
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Configured providers sorted by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProviderResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/providers/health:
+    get:
+      tags:
+        - Providers
+      summary: Get provider health
+      operationId: getProviderHealth
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Provider health keyed by provider/exchange identity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/arbitrage/triangular:
+    get:
+      tags:
+        - Arbitrage
+      summary: Get triangular arbitrage estimates
+      operationId: getTriangularArbitrage
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Depth-aware triangular arbitrage estimates.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TriangularOpportunityV2"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/arbitrage/cross-exchange:
+    get:
+      tags:
+        - Arbitrage
+      summary: Get cross-exchange arbitrage estimates
+      operationId: getCrossExchangeArbitrage
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Depth-aware cross-exchange arbitrage estimates.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CrossExchangeOpportunityV2"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/arbitrage/spot-futures:
+    get:
+      tags:
+        - Arbitrage
+      summary: Get spot-futures basis estimates
+      operationId: getSpotFuturesArbitrage
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Depth-aware crypto spot-futures basis estimates.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SpotFuturesOpportunityV2"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/ibkr/instruments:
+    get:
+      tags:
+        - IBKR
+      summary: Get configured IBKR instruments
+      description: Returns IBKR instrument market info derived from configured instrument universes. Live data support is partial.
+      operationId: getIBKRInstruments
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Configured IBKR instruments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MarketInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/ibkr/fx-triangular:
+    get:
+      tags:
+        - IBKR
+        - Arbitrage
+      summary: Get IBKR FX triangular estimates
+      description: Strategy endpoint returning results when configured IBKR FX market data is available.
+      operationId: getIBKRFXTriangular
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: IBKR FX triangular estimates.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TriangularOpportunityV2"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/ibkr/crypto-futures-basis:
+    get:
+      tags:
+        - IBKR
+        - Arbitrage
+      summary: Get crypto spot vs IBKR futures basis estimates
+      description: Strategy endpoint returning results when relevant crypto spot and IBKR futures data is available.
+      operationId: getIBKRCryptoFuturesBasis
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Crypto spot vs IBKR futures basis estimates.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BrokerFuturesBasisOpportunity"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/signals/related-assets:
+    get:
+      tags:
+        - Signals
+      summary: Get related asset signals
+      operationId: getRelatedAssetSignals
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Related asset signal groups.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RelatedAssetGroupSignal"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/alerts:
+    get:
+      tags:
+        - Alerts
+      summary: Get latest alerts
+      operationId: getAlerts
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Latest in-memory alerts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Alert"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/exchanges/health:
+    get:
+      tags:
+        - Providers
+      summary: Get exchange health
+      description: Legacy health endpoint retained for compatibility. It currently overlaps with provider health.
+      operationId: getExchangeHealth
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Exchange health keyed by exchange/provider identity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/snapshot:
+    get:
+      tags:
+        - Snapshot
+      summary: Get aggregate backend snapshot
+      description: Returns the complete latest-state snapshot consumed by the TUI.
+      operationId: getSnapshot
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Aggregate latest-state snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  responses:
+    Unauthorized:
+      description: Missing, invalid, or unconfigured API key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+      required:
+        - error
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: v2.1.0
+        time:
+          type: string
+          format: date-time
+      required:
+        - status
+        - version
+        - time
+    Decimal:
+      oneOf:
+        - type: string
+          pattern: ^-?[0-9]+(\.[0-9]+)?$
+        - type: number
+      description: Financial decimal value represented by `shopspring/decimal.Decimal` JSON serialization.
+      example: "67210.20"
+    StringDecimal:
+      type: string
+      description: Decimal encoded as a string for precision-safe ingestion.
+      example: "67210.20"
+    MarketType:
+      type: string
+      enum:
+        - spot
+        - futures
+    PricesResponse:
+      type: object
+      properties:
+        prices:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/Ticker"
+        futures_prices:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/Ticker"
+        funding_rates:
+          type: array
+          items:
+            $ref: "#/components/schemas/FundingRate"
+      required:
+        - prices
+        - futures_prices
+        - funding_rates
+    Ticker:
+      type: object
+      properties:
+        provider:
+          type: string
+        exchange:
+          type: string
+        broker:
+          type: string
+        instrument_id:
+          type: string
+        display_name:
+          type: string
+        symbol:
+          type: string
+          example: BTC/USDT
+        base_asset:
+          type: string
+          example: BTC
+        quote_asset:
+          type: string
+          example: USDT
+        market_type:
+          $ref: "#/components/schemas/MarketType"
+        asset_class:
+          type: string
+          example: crypto
+        bid:
+          $ref: "#/components/schemas/Decimal"
+        ask:
+          $ref: "#/components/schemas/Decimal"
+        last:
+          $ref: "#/components/schemas/Decimal"
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - exchange
+        - symbol
+        - base_asset
+        - quote_asset
+        - market_type
+        - asset_class
+        - bid
+        - ask
+        - last
+        - updated_at
+    FundingRate:
+      type: object
+      properties:
+        exchange:
+          type: string
+        symbol:
+          type: string
+        rate:
+          $ref: "#/components/schemas/Decimal"
+        next_funding_time:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - exchange
+        - symbol
+        - rate
+        - next_funding_time
+        - updated_at
+    OrderBookLevel:
+      type: object
+      properties:
+        price:
+          $ref: "#/components/schemas/Decimal"
+        quantity:
+          $ref: "#/components/schemas/Decimal"
+      required:
+        - price
+        - quantity
+    OrderBook:
+      type: object
+      properties:
+        provider:
+          type: string
+        exchange:
+          type: string
+        broker:
+          type: string
+        symbol:
+          type: string
+        instrument_id:
+          type: string
+        base_asset:
+          type: string
+        quote_asset:
+          type: string
+        market_type:
+          $ref: "#/components/schemas/MarketType"
+        asset_class:
+          type: string
+        bids:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderBookLevel"
+        asks:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderBookLevel"
+        updated_at:
+          type: string
+          format: date-time
+        limited_depth:
+          type: boolean
+      required:
+        - provider
+        - exchange
+        - symbol
+        - base_asset
+        - quote_asset
+        - market_type
+        - asset_class
+        - bids
+        - asks
+        - updated_at
+    OrderBookSummary:
+      type: object
+      properties:
+        provider:
+          type: string
+        exchange:
+          type: string
+        broker:
+          type: string
+        symbol:
+          type: string
+        market_type:
+          $ref: "#/components/schemas/MarketType"
+        best_bid:
+          type: string
+        best_ask:
+          type: string
+        bid_levels:
+          type: integer
+          format: int32
+        ask_levels:
+          type: integer
+          format: int32
+        age_seconds:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - provider
+        - exchange
+        - symbol
+        - market_type
+        - best_bid
+        - best_ask
+        - bid_levels
+        - ask_levels
+        - age_seconds
+        - updated_at
+    MarketInfo:
+      type: object
+      properties:
+        provider:
+          type: string
+        exchange:
+          type: string
+        broker:
+          type: string
+        symbol:
+          type: string
+        instrument_id:
+          type: string
+        display_name:
+          type: string
+        base_asset:
+          type: string
+        quote_asset:
+          type: string
+        asset_class:
+          type: string
+        market_type:
+          $ref: "#/components/schemas/MarketType"
+        active:
+          type: boolean
+      required:
+        - exchange
+        - symbol
+        - base_asset
+        - quote_asset
+        - asset_class
+        - market_type
+        - active
+    ExchangeHealth:
+      type: object
+      properties:
+        provider:
+          type: string
+        provider_type:
+          type: string
+          enum:
+            - crypto_exchange
+            - broker
+        exchange:
+          type: string
+        broker:
+          type: string
+        enabled:
+          type: boolean
+        spot_enabled:
+          type: boolean
+        futures_enabled:
+          type: boolean
+          description: For OKX, Bybit, Coinbase, Gate.io, and Bitget this is currently accepted in config but reported as partial because only spot public REST is implemented.
+        market_data_enabled:
+          type: boolean
+        trading_enabled:
+          type: boolean
+        websocket_enabled:
+          type: boolean
+        websocket_connected:
+          type: boolean
+        gateway_connected:
+          type: boolean
+        market_data_ok:
+          type: boolean
+        last_message_time:
+          type: string
+          format: date-time
+        last_message_at:
+          type: string
+          format: date-time
+        rest_fallback_active:
+          type: boolean
+        reconnect_count:
+          type: integer
+          format: int32
+        last_error:
+          type: string
+        data_fresh:
+          type: boolean
+        stale_ticker_count:
+          type: integer
+          format: int32
+        stale_order_book_count:
+          type: integer
+          format: int32
+        partial_support:
+          type: boolean
+        score:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 100
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+            - stale
+            - disconnected
+      required:
+        - exchange
+        - enabled
+        - spot_enabled
+        - futures_enabled
+        - trading_enabled
+        - websocket_enabled
+        - websocket_connected
+        - last_message_time
+        - last_message_at
+        - rest_fallback_active
+        - reconnect_count
+        - data_fresh
+        - stale_ticker_count
+        - stale_order_book_count
+        - partial_support
+        - score
+        - status
+    HealthMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/ExchangeHealth"
+    ProviderResponse:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Provider identity. Supported crypto exchange values are `okx`, `bybit`, `binance`, `kraken`, `coinbase`, `gateio`, and `bitget`; broker support currently includes `ibkr`.
+          example: okx
+        type:
+          type: string
+          enum:
+            - crypto_exchange
+            - broker
+        enabled:
+          type: boolean
+        config:
+          $ref: "#/components/schemas/ProviderConfig"
+      required:
+        - name
+        - type
+        - enabled
+        - config
+    ProviderConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        type:
+          type: string
+          enum:
+            - crypto_exchange
+            - broker
+        spot_enabled:
+          type: boolean
+        futures_enabled:
+          type: boolean
+        websocket_enabled:
+          type: boolean
+        rest_poll_interval:
+          type: string
+          description: Go duration string.
+          example: 2s
+        market_data_enabled:
+          type: boolean
+        trading_enabled:
+          type: boolean
+        crypto_spot_enabled:
+          type: boolean
+        fx_enabled:
+          type: boolean
+        stocks_enabled:
+          type: boolean
+        etfs_enabled:
+          type: boolean
+        api_mode:
+          type: string
+          example: tws_gateway
+        host:
+          type: string
+          example: 127.0.0.1
+        port:
+          type: integer
+          format: int32
+          example: 7497
+        client_id:
+          type: integer
+          format: int32
+          example: 101
+        fees:
+          $ref: "#/components/schemas/ProviderFees"
+    ProviderFees:
+      type: object
+      properties:
+        spot_taker:
+          $ref: "#/components/schemas/Decimal"
+        futures_taker:
+          $ref: "#/components/schemas/Decimal"
+        fx_estimated_taker:
+          $ref: "#/components/schemas/Decimal"
+        futures_estimated_taker:
+          $ref: "#/components/schemas/Decimal"
+    LegSimulation:
+      type: object
+      properties:
+        from_asset:
+          type: string
+        to_asset:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum:
+            - buy
+            - sell
+        input_amount:
+          $ref: "#/components/schemas/Decimal"
+        output_amount:
+          $ref: "#/components/schemas/Decimal"
+        average_price:
+          $ref: "#/components/schemas/Decimal"
+        fee_amount:
+          $ref: "#/components/schemas/Decimal"
+        slippage_percent:
+          $ref: "#/components/schemas/Decimal"
+        complete_fill:
+          type: boolean
+      required:
+        - from_asset
+        - to_asset
+        - symbol
+        - side
+        - input_amount
+        - output_amount
+        - average_price
+        - fee_amount
+        - slippage_percent
+        - complete_fill
+    TriangularOpportunityV2:
+      type: object
+      properties:
+        provider:
+          type: string
+        exchange:
+          type: string
+        strategy_title:
+          type: string
+        asset_class:
+          type: string
+        cycle:
+          type: array
+          items:
+            type: string
+        start_asset:
+          type: string
+        start_amount:
+          $ref: "#/components/schemas/Decimal"
+        end_amount:
+          $ref: "#/components/schemas/Decimal"
+        net_profit_percent:
+          $ref: "#/components/schemas/Decimal"
+        complete_fill:
+          type: boolean
+        worst_leg:
+          type: string
+        max_slippage_percent:
+          $ref: "#/components/schemas/Decimal"
+        legs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegSimulation"
+        status:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - provider
+        - exchange
+        - strategy_title
+        - cycle
+        - start_asset
+        - start_amount
+        - end_amount
+        - net_profit_percent
+        - complete_fill
+        - worst_leg
+        - max_slippage_percent
+        - legs
+        - status
+        - updated_at
+    CrossExchangeOpportunityV2:
+      type: object
+      properties:
+        strategy_title:
+          type: string
+        symbol:
+          type: string
+        buy_provider:
+          type: string
+        sell_provider:
+          type: string
+        buy_exchange:
+          type: string
+        sell_exchange:
+          type: string
+        trade_size:
+          $ref: "#/components/schemas/Decimal"
+        buy_average_price:
+          $ref: "#/components/schemas/Decimal"
+        sell_average_price:
+          $ref: "#/components/schemas/Decimal"
+        buy_slippage_percent:
+          $ref: "#/components/schemas/Decimal"
+        sell_slippage_percent:
+          $ref: "#/components/schemas/Decimal"
+        buy_fee_amount:
+          $ref: "#/components/schemas/Decimal"
+        sell_fee_amount:
+          $ref: "#/components/schemas/Decimal"
+        net_profit_percent:
+          $ref: "#/components/schemas/Decimal"
+        complete_fill:
+          type: boolean
+        status:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - strategy_title
+        - symbol
+        - buy_provider
+        - sell_provider
+        - buy_exchange
+        - sell_exchange
+        - trade_size
+        - buy_average_price
+        - sell_average_price
+        - buy_slippage_percent
+        - sell_slippage_percent
+        - buy_fee_amount
+        - sell_fee_amount
+        - net_profit_percent
+        - complete_fill
+        - status
+        - updated_at
+    SpotFuturesOpportunityV2:
+      type: object
+      properties:
+        strategy_title:
+          type: string
+        provider:
+          type: string
+        exchange:
+          type: string
+        symbol:
+          type: string
+        trade_size:
+          $ref: "#/components/schemas/Decimal"
+        spot_average_buy_price:
+          $ref: "#/components/schemas/Decimal"
+        futures_average_sell_price:
+          $ref: "#/components/schemas/Decimal"
+        spot_slippage_percent:
+          $ref: "#/components/schemas/Decimal"
+        futures_slippage_percent:
+          $ref: "#/components/schemas/Decimal"
+        spot_fee_amount:
+          $ref: "#/components/schemas/Decimal"
+        futures_fee_amount:
+          $ref: "#/components/schemas/Decimal"
+        basis_percent:
+          $ref: "#/components/schemas/Decimal"
+        funding_rate:
+          $ref: "#/components/schemas/Decimal"
+        net_estimate_percent:
+          $ref: "#/components/schemas/Decimal"
+        complete_fill:
+          type: boolean
+        status:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - strategy_title
+        - provider
+        - exchange
+        - symbol
+        - trade_size
+        - spot_average_buy_price
+        - futures_average_sell_price
+        - spot_slippage_percent
+        - futures_slippage_percent
+        - spot_fee_amount
+        - futures_fee_amount
+        - basis_percent
+        - funding_rate
+        - net_estimate_percent
+        - complete_fill
+        - status
+        - updated_at
+    BrokerFuturesBasisOpportunity:
+      type: object
+      properties:
+        strategy_title:
+          type: string
+        asset:
+          type: string
+        spot_provider:
+          type: string
+        spot_symbol:
+          type: string
+        spot_ask:
+          $ref: "#/components/schemas/Decimal"
+        futures_provider:
+          type: string
+        futures_instrument_id:
+          type: string
+        futures_display_name:
+          type: string
+        futures_bid:
+          $ref: "#/components/schemas/Decimal"
+        basis_percent:
+          $ref: "#/components/schemas/Decimal"
+        net_estimate_percent:
+          $ref: "#/components/schemas/Decimal"
+        complete_fill:
+          type: boolean
+        status:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - strategy_title
+        - asset
+        - spot_provider
+        - spot_symbol
+        - spot_ask
+        - futures_provider
+        - futures_instrument_id
+        - futures_display_name
+        - futures_bid
+        - basis_percent
+        - net_estimate_percent
+        - complete_fill
+        - status
+        - updated_at
+    RelatedAssetGroupSignal:
+      type: object
+      properties:
+        group:
+          type: string
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/RelatedAssetSignal"
+        group_average:
+          $ref: "#/components/schemas/Decimal"
+        calculated_at:
+          type: string
+          format: date-time
+      required:
+        - group
+        - assets
+        - group_average
+        - calculated_at
+    RelatedAssetSignal:
+      type: object
+      properties:
+        symbol:
+          type: string
+        asset:
+          type: string
+        exchange:
+          type: string
+        change_percent:
+          $ref: "#/components/schemas/Decimal"
+        divergence_percent:
+          $ref: "#/components/schemas/Decimal"
+      required:
+        - symbol
+        - asset
+        - exchange
+        - change_percent
+        - divergence_percent
+    Alert:
+      type: object
+      properties:
+        id:
+          type: string
+        dedup_key:
+          type: string
+        severity:
+          type: string
+          enum:
+            - info
+            - warning
+            - critical
+        type:
+          type: string
+          enum:
+            - triangular_arbitrage
+            - cross_exchange_arbitrage
+            - spot_futures_basis
+            - ibkr_fx_triangular_arbitrage
+            - crypto_spot_vs_ibkr_futures_basis
+            - exchange_data_stale
+            - exchange_disconnected
+            - health_score_low
+        message:
+          type: string
+        exchange:
+          type: string
+        symbol:
+          type: string
+        value:
+          $ref: "#/components/schemas/Decimal"
+        threshold:
+          $ref: "#/components/schemas/Decimal"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        repeat_count:
+          type: integer
+          format: int32
+        status:
+          type: string
+      required:
+        - id
+        - dedup_key
+        - severity
+        - type
+        - message
+        - value
+        - threshold
+        - created_at
+        - updated_at
+        - repeat_count
+        - status
+    Snapshot:
+      type: object
+      properties:
+        version:
+          type: string
+          example: v2.1.0
+        prices:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/Ticker"
+        futures_prices:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/Ticker"
+        order_books:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderBook"
+        order_book_summary:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderBookSummary"
+        funding_rates:
+          type: array
+          items:
+            $ref: "#/components/schemas/FundingRate"
+        markets:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketInfo"
+        triangular_arbitrage:
+          type: array
+          items:
+            $ref: "#/components/schemas/TriangularOpportunityV2"
+        cross_exchange_arbitrage:
+          type: array
+          items:
+            $ref: "#/components/schemas/CrossExchangeOpportunityV2"
+        spot_futures_arbitrage:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpotFuturesOpportunityV2"
+        related_asset_signals:
+          type: array
+          items:
+            $ref: "#/components/schemas/RelatedAssetGroupSignal"
+        ibkr_instruments:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketInfo"
+        ibkr_fx_triangular:
+          type: array
+          items:
+            $ref: "#/components/schemas/TriangularOpportunityV2"
+        crypto_spot_vs_ibkr_futures_basis:
+          type: array
+          items:
+            $ref: "#/components/schemas/BrokerFuturesBasisOpportunity"
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Alert"
+        exchange_health:
+          $ref: "#/components/schemas/HealthMap"
+        provider_health:
+          $ref: "#/components/schemas/HealthMap"
+      required:
+        - version
+        - prices
+        - futures_prices
+        - order_books
+        - order_book_summary
+        - funding_rates
+        - markets
+        - triangular_arbitrage
+        - cross_exchange_arbitrage
+        - spot_futures_arbitrage
+        - related_asset_signals
+        - ibkr_instruments
+        - ibkr_fx_triangular
+        - crypto_spot_vs_ibkr_futures_basis
+        - alerts
+        - exchange_health
+        - provider_health

@@ -1,0 +1,18 @@
+sequenceDiagram
+    participant Timer as Refresh Tick / Key r
+    participant Model as Bubble Tea Model
+    participant Client as internal/tui.Client
+    participant API as Backend API
+    participant Store as marketdata.Store
+    participant Render as Lip Gloss Renderer
+
+    Timer->>Model: tickMsg or key message
+    Model->>Client: Snapshot(ctx)
+    Client->>API: GET /api/v1/snapshot + X-API-Key
+    API->>Store: Snapshot()
+    Store-->>API: marketdata.Snapshot
+    API-->>Client: JSON response
+    Client-->>Model: snapshotMsg
+    Model->>Model: update state, selection, latency
+    Model->>Render: View()
+    Render-->>Model: terminal string

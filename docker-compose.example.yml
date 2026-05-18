@@ -1,0 +1,11 @@
+services:
+  api:
+    build: .
+    container_name: go-crypto-arb-api
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./configs/config.yaml:/app/configs/config.yaml:ro
+    restart: unless-stopped

@@ -1,0 +1,22 @@
+sequenceDiagram
+    participant App as internal/app
+    participant Store as marketdata.Store
+    participant Arb as internal/arbitrage
+    participant Alerts as alerts.Engine
+
+    App->>Store: Upsert latest market data
+    App->>Arb: CalculateTriangularV2(cfg, spot, books)
+    Arb-->>App: triangular opportunities
+    App->>Arb: CalculateCrossExchangeV2(cfg, spot, books)
+    Arb-->>App: cross-exchange opportunities
+    App->>Arb: CalculateSpotFuturesV2(cfg, spot, futures, books, funding)
+    Arb-->>App: spot-futures opportunities
+    App->>Arb: CalculateIBKRFXTriangular(cfg, brokerTickers, books)
+    Arb-->>App: IBKR FX opportunities
+    App->>Arb: CalculateBrokerFuturesBasis(cfg, spot, brokerTickers, books)
+    Arb-->>App: broker basis opportunities
+    App->>Store: SetCalculations()
+    App->>Store: SetBrokerCalculations()
+    App->>Alerts: Evaluate(cfg, opportunities, health)
+    Alerts-->>App: deduplicated alerts
+    App->>Store: SetAlerts()

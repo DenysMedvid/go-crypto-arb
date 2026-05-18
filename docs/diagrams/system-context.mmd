@@ -1,0 +1,21 @@
+flowchart LR
+    User[User / Operator]
+    TUI[TUI Client\ncmd/tui]
+    WebUI[Web UI\nweb-ui]
+    API[Backend API\ncmd/api]
+    Binance[Binance\nPublic Market Data]
+    Kraken[Kraken\nPublic Market Data]
+    PublicREST[OKX / Bybit / Coinbase\nGate.io / Bitget\nSpot Public REST]
+    IBKR[IBKR TWS / Gateway\nOptional Broker Market Data]
+    Prometheus[Prometheus]
+
+    User --> TUI
+    User --> WebUI
+    User --> API
+    TUI -->|GET /api/v1/snapshot\nX-API-Key| API
+    WebUI -->|REST API\nX-API-Key + CORS| API
+    API -->|REST / WebSocket| Binance
+    API -->|REST / WebSocket| Kraken
+    API -->|spot REST| PublicREST
+    API -. planned / partial .->|TWS Gateway market data| IBKR
+    Prometheus -->|GET /metrics| API

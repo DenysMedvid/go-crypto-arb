@@ -1,0 +1,17 @@
+[Unit]
+Description=go-crypto-arb API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/go-crypto-arb
+EnvironmentFile=/opt/go-crypto-arb/.env
+ExecStart=/usr/local/bin/go-crypto-arb-api
+Restart=on-failure
+RestartSec=5s
+User=go-crypto-arb
+Group=go-crypto-arb
+
+[Install]
+WantedBy=multi-user.target

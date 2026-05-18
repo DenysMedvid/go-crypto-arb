@@ -1,0 +1,411 @@
+app:
+  version: "v2.1.0"
+  refresh_interval: 2s
+  stale_price_after: 15s
+
+api:
+  http_addr: ":8080"
+  # Loopback origins such as http://127.0.0.1:5174 are allowed automatically
+  # for local web UI development. Add deployed web UI origins here.
+  cors_allowed_origins: []
+
+market_data:
+  order_book_depth: 20
+  order_book_stale_after: 10s
+  ticker_stale_after: 15s
+
+simulation:
+  enabled: true
+  quote_asset: USDT
+  trade_sizes:
+    - 1000
+    - 5000
+  max_slippage_percent: 0.3
+
+providers:
+  binance:
+    enabled: true
+    type: crypto_exchange
+    spot_enabled: true
+    futures_enabled: true
+    websocket_enabled: true
+    rest_poll_interval: 5s
+    fees:
+      spot_taker: 0.001
+      futures_taker: 0.0005
+
+  kraken:
+    enabled: true
+    type: crypto_exchange
+    spot_enabled: true
+    futures_enabled: true
+    websocket_enabled: true
+    rest_poll_interval: 5s
+    fees:
+      spot_taker: 0.0026
+      futures_taker: 0.0005
+
+  okx:
+    enabled: true
+    type: crypto_exchange
+    spot_enabled: true
+    futures_enabled: false
+    websocket_enabled: false
+    rest_poll_interval: 5s
+    fees:
+      spot_taker: 0.001
+      futures_taker: 0.0005
+
+  bybit:
+    enabled: true
+    type: crypto_exchange
+    spot_enabled: true
+    futures_enabled: true
+    websocket_enabled: false
+    rest_poll_interval: 5s
+    fees:
+      spot_taker: 0.001
+      futures_taker: 0.00055
+
+  coinbase:
+    enabled: false
+    type: crypto_exchange
+    spot_enabled: true
+    futures_enabled: false
+    websocket_enabled: false
+    rest_poll_interval: 10s
+    fees:
+      spot_taker: 0.006
+      futures_taker: 0
+
+  gateio:
+    enabled: true
+    type: crypto_exchange
+    spot_enabled: true
+    futures_enabled: false
+    websocket_enabled: false
+    rest_poll_interval: 5s
+    fees:
+      spot_taker: 0.002
+      futures_taker: 0.0005
+
+  bitget:
+    enabled: false
+    type: crypto_exchange
+    spot_enabled: true
+    futures_enabled: false
+    websocket_enabled: false
+    rest_poll_interval: 5s
+    fees:
+      spot_taker: 0.001
+      futures_taker: 0.0006
+
+  ibkr:
+    enabled: false
+    type: broker
+    market_data_enabled: true
+    trading_enabled: false
+    crypto_spot_enabled: false
+    futures_enabled: true
+    fx_enabled: true
+    stocks_enabled: true
+    etfs_enabled: true
+    api_mode: "tws_gateway"
+    host: "127.0.0.1"
+    port: 7497
+    client_id: 101
+    fees:
+      fx_estimated_taker: 0.00002
+      futures_estimated_taker: 0.0005
+
+assets:
+  preferred:
+    - BTC
+    - ETH
+    - SOL
+    - POL
+    - BNB
+    - USDT
+    - USDC
+
+  stable_bases:
+    - USDT
+    - USDC
+
+  quote_assets:
+    - USDT
+    - USDC
+
+instrument_universes:
+  crypto_spot:
+    title: "Crypto Spot Markets"
+    providers: ["binance", "kraken"]
+    instruments:
+      - id: BTC_USDT
+        display_name: "Bitcoin / USDT"
+        symbol: "BTC/USDT"
+        asset_class: crypto
+        market_type: spot
+
+      - id: BTC_USDC
+        display_name: "Bitcoin / USDC"
+        symbol: "BTC/USDC"
+        asset_class: crypto
+        market_type: spot
+
+      - id: ETH_USDT
+        display_name: "Ethereum / USDT"
+        symbol: "ETH/USDT"
+        asset_class: crypto
+        market_type: spot
+
+      - id: ETH_USDC
+        display_name: "Ethereum / USDC"
+        symbol: "ETH/USDC"
+        asset_class: crypto
+        market_type: spot
+
+      - id: POL_USDC
+        display_name: "Polygon Ecosystem Token / USDC"
+        symbol: "POL/USDC"
+        asset_class: crypto
+        market_type: spot
+
+      - id: SOL_USDC
+        display_name: "Solana / USDC"
+        symbol: "SOL/USDC"
+        asset_class: crypto
+        market_type: spot
+
+  crypto_futures:
+    title: "Crypto Futures Markets"
+    providers: ["binance", "kraken"]
+    instruments:
+      - id: BTC_USDT_PERP
+        display_name: "BTC Perpetual"
+        symbol: "BTC/USDT"
+        asset_class: crypto
+        market_type: futures
+        providers: ["binance", "kraken"]
+
+  ibkr_futures:
+    title: "IBKR Futures"
+    providers: ["ibkr"]
+    instruments:
+      - id: CME_MICRO_BTC
+        display_name: "CME Micro Bitcoin Future"
+        asset_class: futures
+        market_type: futures
+        providers: ["ibkr"]
+        ibkr:
+          symbol: "MBT"
+          sec_type: "FUT"
+          exchange: "CME"
+          currency: "USD"
+          con_id: null
+
+      - id: CME_MICRO_ETH
+        display_name: "CME Micro Ether Future"
+        asset_class: futures
+        market_type: futures
+        providers: ["ibkr"]
+        ibkr:
+          symbol: "MET"
+          sec_type: "FUT"
+          exchange: "CME"
+          currency: "USD"
+          con_id: null
+
+  ibkr_fx:
+    title: "IBKR FX Pairs"
+    providers: ["ibkr"]
+    instruments:
+      - id: EUR_USD
+        display_name: "EUR/USD"
+        symbol: "EUR/USD"
+        asset_class: fx
+        market_type: spot
+
+      - id: USD_JPY
+        display_name: "USD/JPY"
+        symbol: "USD/JPY"
+        asset_class: fx
+        market_type: spot
+
+      - id: EUR_JPY
+        display_name: "EUR/JPY"
+        symbol: "EUR/JPY"
+        asset_class: fx
+        market_type: spot
+
+  ibkr_etfs:
+    title: "IBKR ETFs"
+    providers: ["ibkr"]
+    instruments:
+      - id: VTI
+        display_name: "Vanguard Total Stock Market ETF"
+        asset_class: etf
+        market_type: spot
+        providers: ["ibkr"]
+        ibkr:
+          symbol: "VTI"
+          sec_type: "STK"
+          exchange: "SMART"
+          currency: "USD"
+          con_id: null
+
+      - id: VWCE
+        display_name: "Vanguard FTSE All-World UCITS ETF"
+        asset_class: etf
+        market_type: spot
+        providers: ["ibkr"]
+        ibkr:
+          symbol: "VWCE"
+          sec_type: "STK"
+          exchange: "SMART"
+          currency: "EUR"
+          con_id: null
+
+strategies:
+  crypto_triangular:
+    enabled: true
+    title: "Crypto Triangular Arbitrage"
+    providers: ["binance", "kraken"]
+    universe: "crypto_spot"
+    base_assets: ["USDT", "USDC"]
+    exclude_providers: ["ibkr"]
+    min_profit_percent: 0.0
+    max_results: 20
+    use_order_book_depth: true
+
+  cross_exchange:
+    enabled: true
+    title: "Cross-Exchange Arbitrage"
+    providers: ["binance", "kraken"]
+    universe: "crypto_spot"
+    min_profit_percent: 0.0
+    max_results: 20
+    use_order_book_depth: true
+
+  crypto_spot_futures:
+    enabled: true
+    title: "Crypto Spot-Futures Arbitrage"
+    spot_providers: ["binance", "kraken"]
+    futures_providers: ["binance", "kraken"]
+    min_basis_percent: 0.0
+    include_funding_rate: true
+    max_results: 20
+    use_order_book_depth: true
+
+  ibkr_fx_triangular:
+    enabled: true
+    title: "IBKR FX Triangular Arbitrage"
+    providers: ["ibkr"]
+    universe: "ibkr_fx"
+    base_assets: ["USD", "EUR"]
+    cycles:
+      - ["USD", "EUR", "USD"]
+      - ["USD", "GBP", "EUR", "USD"]
+    min_profit_percent: 0.0
+    max_results: 20
+    use_order_book_depth: true
+
+  crypto_spot_vs_ibkr_futures:
+    enabled: true
+    title: "Crypto Spot vs IBKR Futures Basis"
+    spot_providers: ["binance", "kraken"]
+    futures_providers: ["ibkr"]
+    crypto_spot_via_ibkr: false
+    min_basis_percent: 0.0
+    max_results: 20
+    use_order_book_depth: true
+    instruments:
+      - id: BTC_SPOT_VS_CME_MBT
+        asset: BTC
+        spot_symbols:
+          - provider: "binance"
+            symbol: "BTC/USDT"
+          - provider: "kraken"
+            symbol: "BTC/USD"
+        futures_symbol:
+          provider: "ibkr"
+          instrument_id: "CME_MICRO_BTC"
+
+      - id: ETH_SPOT_VS_CME_MET
+        asset: ETH
+        spot_symbols:
+          - provider: "binance"
+            symbol: "ETH/USDT"
+          - provider: "kraken"
+            symbol: "ETH/USD"
+        futures_symbol:
+          provider: "ibkr"
+          instrument_id: "CME_MICRO_ETH"
+
+signals:
+  related_assets:
+    enabled: true
+    title: "Related Asset Signals"
+    max_results: 20
+    groups:
+      - name: "BTC ecosystem"
+        assets: ["BTC", "ETH", "SOL"]
+      - name: "Stablecoins"
+        assets: ["USDT", "USDC", "USD"]
+
+alerts:
+  enabled: true
+  title: "Alerts"
+  min_profit_percent: 0.2
+  min_basis_percent: 0.2
+  cooldown: 5m
+  repeat_if_profit_changes_by_percent: 0.1
+  max_results: 50
+
+metrics:
+  prometheus_enabled: true
+  prometheus_path: /metrics
+
+health:
+  scoring_enabled: true
+  stale_penalty: 20
+  disconnected_penalty: 40
+  rest_fallback_penalty: 10
+  reconnect_penalty: 2
+
+tui:
+  backend_url: "http://localhost:8080"
+  refresh_interval: 2s
+  default_view: "crypto_dashboard"
+  use_emoji: true
+  use_ascii_fallback: true
+  tabs:
+    crypto_dashboard:
+      enabled: true
+      title: "Crypto Dashboard"
+    triangular:
+      enabled: true
+      title: "Crypto Triangular"
+    cross_exchange:
+      enabled: true
+      title: "Cross-Exchange"
+    spot_futures:
+      enabled: true
+      title: "Crypto Spot-Futures"
+    signals:
+      enabled: true
+      title: "Signals"
+    alerts:
+      enabled: true
+      title: "Alerts"
+    health:
+      enabled: true
+      title: "Health"
+    ibkr:
+      enabled: true
+      title: "IBKR Monitor"
+      sections:
+        instruments: true
+        fx_triangular_arbitrage: true
+        crypto_spot_vs_ibkr_futures_basis: true
+        health: true
