@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/shopspring/decimal"
 
+	"go-crypto-arb/internal/arbitrage"
 	"go-crypto-arb/internal/exchange"
 )
 
@@ -77,6 +78,72 @@ func TestRenderHealthRowKeepsVisibleColumnsAligned(t *testing.T) {
 
 	expectedHeader := fmt.Sprintf("%-10s %-7s %-8s %-7s %-13s %-10s %-10s %-6s", "Exchange", "Spot", "Futures", "WS", "REST Fallback", "Last Msg", "Reconnects", "Score")
 	expectedRow := fmt.Sprintf("%-10s %-7s %-8s %-7s %-13s %-10s %-10d %-6s", "binance", "WARN", "WARN", "OK", "No", "n/a", 3, "95")
+	if header != expectedHeader {
+		t.Fatalf("expected header %q, got %q", expectedHeader, header)
+	}
+	if row != expectedRow {
+		t.Fatalf("expected row %q, got %q", expectedRow, row)
+	}
+}
+
+func TestRenderTriangularRowKeepsVisibleColumnsAligned(t *testing.T) {
+	header := stripANSI(renderTriangularHeader())
+	row := stripANSI(renderTriangularRow(">", arbitrage.TriangularOpportunityV2{
+		Exchange:         "binance",
+		Cycle:            []string{"USDT", "BTC", "ETH", "USDT"},
+		StartAmount:      decimal.RequireFromString("1000"),
+		EndAmount:        decimal.RequireFromString("1025.5"),
+		NetProfitPercent: decimal.RequireFromString("2.5"),
+		CompleteFill:     true,
+		Status:           "PROFIT",
+	}))
+
+	expectedHeader := fmt.Sprintf("%-1s %-30s %-10s %8s %10s %9s %8s %8s", "", "Cycle", "Exchange", "Start", "End", "Net %", "Fill", "Status")
+	expectedRow := fmt.Sprintf("%-1s %-30s %-10s %8s %10s %9s %8s %8s", ">", "USDT -> BTC -> ETH -> USDT", "binance", "1000", "1025.50", "+2.500%", "FULL", "PROFIT")
+	if header != expectedHeader {
+		t.Fatalf("expected header %q, got %q", expectedHeader, header)
+	}
+	if row != expectedRow {
+		t.Fatalf("expected row %q, got %q", expectedRow, row)
+	}
+}
+
+func TestRenderCrossExchangeRowKeepsVisibleColumnsAligned(t *testing.T) {
+	header := stripANSI(renderCrossExchangeHeader())
+	row := stripANSI(renderCrossExchangeRow(">", arbitrage.CrossExchangeOpportunityV2{
+		Symbol:           "BTC/USDT",
+		BuyExchange:      "binance",
+		SellExchange:     "kraken",
+		BuyAveragePrice:  decimal.RequireFromString("99.1234"),
+		SellAveragePrice: decimal.RequireFromString("101.5678"),
+		NetProfitPercent: decimal.RequireFromString("0.75"),
+		CompleteFill:     false,
+	}))
+
+	expectedHeader := fmt.Sprintf("%-1s %-10s %-10s %12s %-10s %12s %9s %8s", "", "Symbol", "Buy On", "Buy Avg", "Sell On", "Sell Avg", "Net %", "Fill")
+	expectedRow := fmt.Sprintf("%-1s %-10s %-10s %12s %-10s %12s %9s %8s", ">", "BTC/USDT", "binance", "99.1234", "kraken", "101.5678", "+0.750%", "PARTIAL")
+	if header != expectedHeader {
+		t.Fatalf("expected header %q, got %q", expectedHeader, header)
+	}
+	if row != expectedRow {
+		t.Fatalf("expected row %q, got %q", expectedRow, row)
+	}
+}
+
+func TestRenderSpotFuturesRowKeepsVisibleColumnsAligned(t *testing.T) {
+	header := stripANSI(renderSpotFuturesHeader())
+	row := stripANSI(renderSpotFuturesRow(">", arbitrage.SpotFuturesOpportunityV2{
+		Symbol:                  "BTC/USDT",
+		Exchange:                "binance",
+		SpotAverageBuyPrice:     decimal.RequireFromString("99.1234"),
+		FuturesAverageSellPrice: decimal.RequireFromString("101.5678"),
+		BasisPercent:            decimal.RequireFromString("1.25"),
+		FundingRate:             decimal.RequireFromString("0.0001"),
+		CompleteFill:            false,
+	}))
+
+	expectedHeader := fmt.Sprintf("%-1s %-10s %-10s %12s %12s %9s %9s %8s", "", "Symbol", "Exchange", "Spot Avg", "Fut Avg", "Basis %", "Funding", "Fill")
+	expectedRow := fmt.Sprintf("%-1s %-10s %-10s %12s %12s %9s %9s %8s", ">", "BTC/USDT", "binance", "99.1234", "101.5678", "+1.250%", "+0.010%", "PARTIAL")
 	if header != expectedHeader {
 		t.Fatalf("expected header %q, got %q", expectedHeader, header)
 	}

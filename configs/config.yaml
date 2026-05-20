@@ -46,7 +46,7 @@ providers:
       futures_taker: 0.0005
 
   okx:
-    enabled: true
+    enabled: false
     type: crypto_exchange
     spot_enabled: true
     futures_enabled: false
@@ -57,7 +57,7 @@ providers:
       futures_taker: 0.0005
 
   bybit:
-    enabled: true
+    enabled: false
     type: crypto_exchange
     spot_enabled: true
     futures_enabled: true

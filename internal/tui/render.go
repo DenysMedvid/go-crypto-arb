@@ -193,14 +193,9 @@ func (m Model) filterDashboardPrices(tickers []exchange.Ticker) []exchange.Ticke
 func (m Model) renderTriangular(width int) string {
 	cardWidth := fixedCardWidth(width, opportunityCardWidth)
 	items := m.filterTriangular(m.snapshot.TriangularArbitrage)
-	lines := []string{fmt.Sprintf("  %-30s %-10s %8s %10s %9s %8s %8s", "Cycle", "Exchange", "Start", "End", "Net %", "Fill", "Status")}
+	lines := []string{renderTriangularHeader()}
 	for i, item := range first(items, 8) {
-		cycle := strings.Join(item.Cycle, " -> ")
-		pct := coloredPercent(item.NetProfitPercent)
-		status := coloredStatus(item.Status, item.NetProfitPercent)
-		fill := fillStatus(item.CompleteFill)
-		lines = append(lines, fmt.Sprintf("%s %-30s %-10s %8s %10s %9s %8s %8s",
-			m.selectMarker(i), truncate(cycle, 30), truncate(item.Exchange, 10), item.StartAmount.StringFixed(0), item.EndAmount.StringFixed(2), pct, fill, status))
+		lines = append(lines, renderTriangularRow(m.selectMarker(i), item))
 	}
 	if len(items) == 0 {
 		lines = append(lines, mutedStyle.Render("No triangular results yet"))
@@ -215,11 +210,10 @@ func (m Model) renderCrossExchange(width int) string {
 	if m.currentView == "crypto_dashboard" || m.currentView == "" {
 		offset = len(m.filterTriangular(m.snapshot.TriangularArbitrage))
 	}
-	lines := []string{fmt.Sprintf("  %-10s %-10s %12s %-10s %12s %9s %8s", "Symbol", "Buy On", "Buy Avg", "Sell On", "Sell Avg", "Net %", "Fill")}
+	lines := []string{renderCrossExchangeHeader()}
 	for i, item := range first(items, 8) {
 		idx := offset + i
-		lines = append(lines, fmt.Sprintf("%s %-10s %-10s %12s %-10s %12s %9s %8s",
-			m.selectMarker(idx), truncate(item.Symbol, 10), truncate(item.BuyExchange, 10), money(item.BuyAveragePrice), truncate(item.SellExchange, 10), money(item.SellAveragePrice), coloredPercent(item.NetProfitPercent), fillStatus(item.CompleteFill)))
+		lines = append(lines, renderCrossExchangeRow(m.selectMarker(idx), item))
 	}
 	if len(items) == 0 {
 		lines = append(lines, mutedStyle.Render("No cross-exchange results yet"))
@@ -234,11 +228,10 @@ func (m Model) renderSpotFutures(width int) string {
 	if m.currentView == "crypto_dashboard" || m.currentView == "" {
 		offset = len(m.filterTriangular(m.snapshot.TriangularArbitrage)) + len(m.filterCross(m.snapshot.CrossExchangeArbitrage))
 	}
-	lines := []string{fmt.Sprintf("  %-10s %-10s %12s %12s %9s %9s %8s", "Symbol", "Exchange", "Spot Avg", "Fut Avg", "Basis %", "Funding", "Fill")}
+	lines := []string{renderSpotFuturesHeader()}
 	for i, item := range first(items, 8) {
 		idx := offset + i
-		lines = append(lines, fmt.Sprintf("%s %-10s %-10s %12s %12s %9s %9s %8s",
-			m.selectMarker(idx), truncate(item.Symbol, 10), truncate(item.Exchange, 10), money(item.SpotAverageBuyPrice), money(item.FuturesAverageSellPrice), coloredPercent(item.BasisPercent), coloredPercent(item.FundingRate.Mul(decimal.NewFromInt(100))), fillStatus(item.CompleteFill)))
+		lines = append(lines, renderSpotFuturesRow(m.selectMarker(idx), item))
 	}
 	if len(items) == 0 {
 		lines = append(lines, mutedStyle.Render("No spot-futures results yet"))
@@ -797,6 +790,84 @@ func renderPriceRow(symbol string, bid string, ask string, age string, symbolSty
 		renderCell(bid, 12, true, bidStyle),
 		renderCell(ask, 12, true, askStyle),
 		renderCell(age, 6, true, ageStyle),
+	}, " ")
+}
+
+func renderTriangularHeader() string {
+	return strings.Join([]string{
+		renderCell("", 1, false, plainStyle),
+		renderCell("Cycle", 30, false, plainStyle),
+		renderCell("Exchange", 10, false, plainStyle),
+		renderCell("Start", 8, true, plainStyle),
+		renderCell("End", 10, true, plainStyle),
+		renderCell("Net %", 9, true, plainStyle),
+		renderCell("Fill", 8, true, plainStyle),
+		renderCell("Status", 8, true, plainStyle),
+	}, " ")
+}
+
+func renderTriangularRow(marker string, item arbitrage.TriangularOpportunityV2) string {
+	return strings.Join([]string{
+		renderCell(marker, 1, false, plainStyle),
+		renderCell(truncate(strings.Join(item.Cycle, " -> "), 30), 30, false, plainStyle),
+		renderCell(truncate(item.Exchange, 10), 10, false, plainStyle),
+		renderCell(item.StartAmount.StringFixed(0), 8, true, plainStyle),
+		renderCell(item.EndAmount.StringFixed(2), 10, true, plainStyle),
+		renderCell(coloredPercent(item.NetProfitPercent), 9, true, plainStyle),
+		renderCell(fillStatus(item.CompleteFill), 8, true, plainStyle),
+		renderCell(coloredStatus(item.Status, item.NetProfitPercent), 8, true, plainStyle),
+	}, " ")
+}
+
+func renderCrossExchangeHeader() string {
+	return strings.Join([]string{
+		renderCell("", 1, false, plainStyle),
+		renderCell("Symbol", 10, false, plainStyle),
+		renderCell("Buy On", 10, false, plainStyle),
+		renderCell("Buy Avg", 12, true, plainStyle),
+		renderCell("Sell On", 10, false, plainStyle),
+		renderCell("Sell Avg", 12, true, plainStyle),
+		renderCell("Net %", 9, true, plainStyle),
+		renderCell("Fill", 8, true, plainStyle),
+	}, " ")
+}
+
+func renderCrossExchangeRow(marker string, item arbitrage.CrossExchangeOpportunityV2) string {
+	return strings.Join([]string{
+		renderCell(marker, 1, false, plainStyle),
+		renderCell(truncate(item.Symbol, 10), 10, false, plainStyle),
+		renderCell(truncate(item.BuyExchange, 10), 10, false, plainStyle),
+		renderCell(money(item.BuyAveragePrice), 12, true, plainStyle),
+		renderCell(truncate(item.SellExchange, 10), 10, false, plainStyle),
+		renderCell(money(item.SellAveragePrice), 12, true, plainStyle),
+		renderCell(coloredPercent(item.NetProfitPercent), 9, true, plainStyle),
+		renderCell(fillStatus(item.CompleteFill), 8, true, plainStyle),
+	}, " ")
+}
+
+func renderSpotFuturesHeader() string {
+	return strings.Join([]string{
+		renderCell("", 1, false, plainStyle),
+		renderCell("Symbol", 10, false, plainStyle),
+		renderCell("Exchange", 10, false, plainStyle),
+		renderCell("Spot Avg", 12, true, plainStyle),
+		renderCell("Fut Avg", 12, true, plainStyle),
+		renderCell("Basis %", 9, true, plainStyle),
+		renderCell("Funding", 9, true, plainStyle),
+		renderCell("Fill", 8, true, plainStyle),
+	}, " ")
+}
+
+func renderSpotFuturesRow(marker string, item arbitrage.SpotFuturesOpportunityV2) string {
+	return strings.Join([]string{
+		renderCell(marker, 1, false, plainStyle),
+		renderCell(truncate(item.Symbol, 10), 10, false, plainStyle),
+		renderCell(truncate(item.Exchange, 10), 10, false, plainStyle),
+		renderCell(money(item.SpotAverageBuyPrice), 12, true, plainStyle),
+		renderCell(money(item.FuturesAverageSellPrice), 12, true, plainStyle),
+		renderCell(coloredPercent(item.BasisPercent), 9, true, plainStyle),
+		renderCell(coloredPercent(item.FundingRate.Mul(decimal.NewFromInt(100))), 9, true, plainStyle),
+		renderCell(fillStatus(item.CompleteFill), 8, true, plainStyle),
 	}, " ")
 }
 
