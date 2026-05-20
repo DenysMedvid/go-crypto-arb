@@ -75,3 +75,24 @@ export function filterProfitableOnly<T extends AnyOpportunity>(items: T[], enabl
   }
   return items.filter((item) => opportunityProfit(item) > 0);
 }
+
+export function sortCrossExchangeByPotentialProfit(
+  items: CrossExchangeOpportunity[],
+): CrossExchangeOpportunity[] {
+  return [...items].sort((left, right) => {
+    const profitDifference = opportunityProfit(right) - opportunityProfit(left);
+    if (profitDifference !== 0) {
+      return profitDifference;
+    }
+
+    const leftSpread =
+      decimalToNumber(left.sell_average_price) - decimalToNumber(left.buy_average_price);
+    const rightSpread =
+      decimalToNumber(right.sell_average_price) - decimalToNumber(right.buy_average_price);
+    if (rightSpread !== leftSpread) {
+      return rightSpread - leftSpread;
+    }
+
+    return left.symbol.localeCompare(right.symbol);
+  });
+}

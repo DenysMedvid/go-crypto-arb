@@ -743,15 +743,23 @@ func priceHighlightFor(extrema map[string]priceExtrema, symbol string, value dec
 }
 
 func (m Model) filterCross(items []arbitrage.CrossExchangeOpportunityV2) []arbitrage.CrossExchangeOpportunityV2 {
-	if !m.profitableOnly {
-		return items
-	}
-	var out []arbitrage.CrossExchangeOpportunityV2
+	out := make([]arbitrage.CrossExchangeOpportunityV2, 0, len(items))
 	for _, item := range items {
-		if item.NetProfitPercent.GreaterThan(decimal.Zero) {
+		if !m.profitableOnly || item.NetProfitPercent.GreaterThan(decimal.Zero) {
 			out = append(out, item)
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].NetProfitPercent.Equal(out[j].NetProfitPercent) {
+			return out[i].NetProfitPercent.GreaterThan(out[j].NetProfitPercent)
+		}
+		leftSpread := out[i].SellAveragePrice.Sub(out[i].BuyAveragePrice)
+		rightSpread := out[j].SellAveragePrice.Sub(out[j].BuyAveragePrice)
+		if !leftSpread.Equal(rightSpread) {
+			return leftSpread.GreaterThan(rightSpread)
+		}
+		return out[i].Symbol < out[j].Symbol
+	})
 	return out
 }
 

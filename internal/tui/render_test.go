@@ -130,6 +130,38 @@ func TestRenderCrossExchangeRowKeepsVisibleColumnsAligned(t *testing.T) {
 	}
 }
 
+func TestFilterCrossSortsHighestPotentialProfitFirst(t *testing.T) {
+	items := []arbitrage.CrossExchangeOpportunityV2{
+		{
+			Symbol:           "ETH/USDT",
+			BuyAveragePrice:  decimal.RequireFromString("100"),
+			SellAveragePrice: decimal.RequireFromString("103"),
+			NetProfitPercent: decimal.RequireFromString("0.25"),
+		},
+		{
+			Symbol:           "BTC/USDT",
+			BuyAveragePrice:  decimal.RequireFromString("100"),
+			SellAveragePrice: decimal.RequireFromString("105"),
+			NetProfitPercent: decimal.RequireFromString("1.25"),
+		},
+		{
+			Symbol:           "SOL/USDT",
+			BuyAveragePrice:  decimal.RequireFromString("100"),
+			SellAveragePrice: decimal.RequireFromString("104"),
+			NetProfitPercent: decimal.RequireFromString("0.75"),
+		},
+	}
+
+	got := Model{}.filterCross(items)
+
+	if got[0].Symbol != "BTC/USDT" {
+		t.Fatalf("expected highest net profit first, got %s", got[0].Symbol)
+	}
+	if got[1].Symbol != "SOL/USDT" || got[2].Symbol != "ETH/USDT" {
+		t.Fatalf("expected descending net profit order, got %#v", got)
+	}
+}
+
 func TestRenderSpotFuturesRowKeepsVisibleColumnsAligned(t *testing.T) {
 	header := stripANSI(renderSpotFuturesHeader())
 	row := stripANSI(renderSpotFuturesRow(">", arbitrage.SpotFuturesOpportunityV2{
